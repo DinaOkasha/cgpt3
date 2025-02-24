@@ -1,0 +1,23 @@
+name: OpenAI Code Review
+
+on:
+  pull_request:
+
+jobs:
+  code-review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Run OpenAI Code Review
+        uses: sshnaidm/gpt-code-review-action@v2.0
+        with:
+          openai-key: ${{ secrets.OPENAI_API_KEY }}
+          model: 'gpt-4'  # Optional: You can change this to 'gpt-3.5-turbo'
+          max-length: 8000  # Optional: Adjust character limit for review
+          prompt: 'Review this code for best practices, security, and performance improvements.'  # Optional: Customize the review prompt
+          post-if-error: true
