@@ -37,6 +37,7 @@ jobs:
         id: chatgpt
         run: |
           DIFF_CONTENT=$(cat pr_diff.txt | head -c 6000)  # Limit to 6000 chars to avoid API limits
+          
           RESPONSE=$(curl -s https://api.openai.com/v1/chat/completions \
             -H "Authorization: Bearer ${{ secrets.OPENAI_API_KEY }}" \
             -H "Content-Type: application/json" \
@@ -44,18 +45,30 @@ jobs:
               "model": "gpt-4",
               "messages": [
                 {"role": "system", "content": "You are an expert code reviewer. Provide constructive feedback on the PR title, body, and code diff."},
-                {"role": "user", "content": "PR Title: $PR_TITLE\nPR Body: $PR_BODY\nCode Diff:\n'"$DIFF_CONTENT"'"}
+                {"role": "user", "content": "PR Title: '"$PR_TITLE"'\nPR Body: '"$PR_BODY"'\nCode Diff:\n'"$DIFF_CONTENT"'"}
               ]
             }' | jq -r '.choices[0].message.content')
+
+          # Debugging output
+          echo "ChatGPT Response: $RESPONSE"
+
+          # Ensure response is not null before saving
+          if [[ -z "$RESPONSE" || "$RESPONSE" == "null" ]]; then
+            echo "No valid response from ChatGPT."
+            exit 1
+          fi
+
           echo "REVIEW=$RESPONSE" >> $GITHUB_ENV
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
       - name: Comment on PR
+        if: env.REVIEW != 'null' && env.REVIEW != ''
         run: |
           gh pr comment ${{ github.event.pull_request.number }} --body "$REVIEW"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 
 
 
