@@ -27,32 +27,46 @@ jobs:
       - name: Get PR Details
         id: pr_details
         run: |
-          echo "PR_TITLE=$(jq -r '.pull_request.title' "$GITHUB_EVENT_PATH")" >> $GITHUB_ENV
-          echo "PR_BODY=$(jq -r '.pull_request.body' "$GITHUB_EVENT_PATH")" >> $GITHUB_ENV
+          echo "Fetching PR details..."
+          PR_TITLE=$(jq -r '.pull_request.title' "$GITHUB_EVENT_PATH")
+          PR_BODY=$(jq -r '.pull_request.body' "$GITHUB_EVENT_PATH")
           gh pr diff ${{ github.event.pull_request.number }} > pr_diff.txt
+          
+          echo "PR Title: $PR_TITLE"
+          echo "PR Body: $PR_BODY"
+          echo "Extracting diff (first 500 chars for debug):"
+          head -c 500 pr_diff.txt
+          
+          echo "PR_TITLE=$PR_TITLE" >> $GITHUB_ENV
+          echo "PR_BODY=$PR_BODY" >> $GITHUB_ENV
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Call ChatGPT API
         id: chatgpt
         run: |
-          DIFF_CONTENT=$(cat pr_diff.txt | head -c 6000)  # Limit to 6000 chars to avoid API limits
-          
+          DIFF_CONTENT=$(cat pr_diff.txt | head -c 4000)  # Reduce size for OpenAI API
+
+          # Construct API request
+          REQUEST_BODY=$(jq -n --arg title "$PR_TITLE" --arg body "$PR_BODY" --arg diff "$DIFF_CONTENT" '{
+            model: "gpt-4",
+            messages: [
+              { role: "system", content: "You are an expert code reviewer. Provide constructive feedback on the PR title, body, and code diff." },
+              { role: "user", content: ("PR Title: " + $title + "\nPR Body: " + $body + "\nCode Diff:\n" + $diff) }
+            ]
+          }')
+
+          echo "Sending request to OpenAI..."
+          echo "Request Body (trimmed):"
+          echo "$REQUEST_BODY" | head -c 500
+
           RESPONSE=$(curl -s https://api.openai.com/v1/chat/completions \
             -H "Authorization: Bearer ${{ secrets.OPENAI_API_KEY }}" \
             -H "Content-Type: application/json" \
-            -d '{
-              "model": "gpt-4",
-              "messages": [
-                {"role": "system", "content": "You are an expert code reviewer. Provide constructive feedback on the PR title, body, and code diff."},
-                {"role": "user", "content": "PR Title: '"$PR_TITLE"'\nPR Body: '"$PR_BODY"'\nCode Diff:\n'"$DIFF_CONTENT"'"}
-              ]
-            }' | jq -r '.choices[0].message.content')
+            -d "$REQUEST_BODY" | jq -r '.choices[0].message.content')
 
-          # Debugging output
           echo "ChatGPT Response: $RESPONSE"
 
-          # Ensure response is not null before saving
           if [[ -z "$RESPONSE" || "$RESPONSE" == "null" ]]; then
             echo "No valid response from ChatGPT."
             exit 1
@@ -63,11 +77,12 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
       - name: Comment on PR
-        if: env.REVIEW != 'null' && env.REVIEW != ''
         run: |
+          echo "Adding ChatGPT review to PR..."
           gh pr comment ${{ github.event.pull_request.number }} --body "$REVIEW"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 
 
 
