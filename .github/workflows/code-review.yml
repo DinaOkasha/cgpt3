@@ -7,6 +7,8 @@ on:
 jobs:
   analyze_pr:
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write  # ✅ Grant write access to PRs
 
     steps:
       - name: Checkout repository
@@ -54,5 +56,6 @@ jobs:
           gh pr comment ${{ github.event.pull_request.number }} --body "$REVIEW"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 
 
