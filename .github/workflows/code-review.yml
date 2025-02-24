@@ -30,31 +30,47 @@ jobs:
           echo "Fetching PR details..."
           PR_TITLE=$(jq -r '.pull_request.title' "$GITHUB_EVENT_PATH")
           PR_BODY=$(jq -r '.pull_request.body' "$GITHUB_EVENT_PATH")
+          
+          # Avoid 'null' values by replacing them with empty strings
+          PR_TITLE=${PR_TITLE:-"Untitled PR"}
+          PR_BODY=${PR_BODY:-"No description provided."}
+
           gh pr diff ${{ github.event.pull_request.number }} > pr_diff.txt
+
+          # Trim large diffs to fit within OpenAI limits
+          DIFF_CONTENT=$(head -c 4000 pr_diff.txt)
           
           echo "PR Title: $PR_TITLE"
           echo "PR Body: $PR_BODY"
           echo "Extracting diff (first 500 chars for debug):"
-          head -c 500 pr_diff.txt
-          
+          echo "$DIFF_CONTENT" | head -c 500
+
           echo "PR_TITLE=$PR_TITLE" >> $GITHUB_ENV
           echo "PR_BODY=$PR_BODY" >> $GITHUB_ENV
+          echo "DIFF_CONTENT=$DIFF_CONTENT" >> $GITHUB_ENV
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Call ChatGPT API
         id: chatgpt
         run: |
-          DIFF_CONTENT=$(cat pr_diff.txt | head -c 4000)  # Reduce size for OpenAI API
+          # Ensure variables are properly set
+          PR_TITLE="${PR_TITLE:-Untitled PR}"
+          PR_BODY="${PR_BODY:-No description provided.}"
+          DIFF_CONTENT="${DIFF_CONTENT:-No code changes detected.}"
 
           # Construct API request
-          REQUEST_BODY=$(jq -n --arg title "$PR_TITLE" --arg body "$PR_BODY" --arg diff "$DIFF_CONTENT" '{
-            model: "gpt-4",
-            messages: [
-              { role: "system", content: "You are an expert code reviewer. Provide constructive feedback on the PR title, body, and code diff." },
-              { role: "user", content: ("PR Title: " + $title + "\nPR Body: " + $body + "\nCode Diff:\n" + $diff) }
-            ]
-          }')
+          REQUEST_BODY=$(jq -n \
+            --arg title "$PR_TITLE" \
+            --arg body "$PR_BODY" \
+            --arg diff "$DIFF_CONTENT" \
+            '{
+              model: "gpt-4",
+              messages: [
+                { role: "system", content: "You are an expert code reviewer. Provide constructive feedback on the PR title, body, and code diff." },
+                { role: "user", content: ("PR Title: " + $title + "\nPR Body: " + $body + "\nCode Diff:\n" + $diff) }
+              ]
+            }')
 
           echo "Sending request to OpenAI..."
           echo "Request Body (trimmed):"
@@ -67,8 +83,9 @@ jobs:
 
           echo "ChatGPT Response: $RESPONSE"
 
+          # Ensure response is not null before saving
           if [[ -z "$RESPONSE" || "$RESPONSE" == "null" ]]; then
-            echo "No valid response from ChatGPT."
+            echo "ChatGPT API returned an empty response. Skipping PR comment."
             exit 1
           fi
 
@@ -77,12 +94,12 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
       - name: Comment on PR
+        if: env.REVIEW != 'null' && env.REVIEW != ''
         run: |
           echo "Adding ChatGPT review to PR..."
           gh pr comment ${{ github.event.pull_request.number }} --body "$REVIEW"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
 
 
 
