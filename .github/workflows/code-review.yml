@@ -1,34 +1,34 @@
-name: CI Pipeline
+name: OpenAI Code Review
 
 on:
-  push:
-    branches:
-      - main
   pull_request:
-    branches:
-      - main
 
 jobs:
-  build:
+  code-review:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Checkout Repository
+        uses: actions/checkout@v3
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'  # Ensure compatibility with the action
+          python-version: '3.10'
 
       - name: Enable Debug Mode
         run: echo "ACTIONS_STEP_DEBUG=true" >> $GITHUB_ENV
 
-      - name: Install dependencies
-        run: |
-          pip install -r /home/runner/work/_actions/sshnaidm/gpt-code-review-action/v2.0/requirements.txt || true
-
-      - name: Run GPT Code Review
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}  # Ensure this secret is set in your repository
+      - name: Run OpenAI Code Review
         uses: sshnaidm/gpt-code-review-action@v2.0
+        with:
+          openai-key: ${{ secrets.OPENAI_API_KEY }}  # Make sure this secret exists!
+          github-token: ${{ secrets.GITHUB_TOKEN }}      # Provides permission to post comments
+          model: 'gpt-4'
+          max-length: 8000
+          prompt: 'Review this code for best practices, security, and performance improvements.'
+          post-if-error: true
+
